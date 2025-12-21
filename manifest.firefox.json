@@ -1,6 +1,6 @@
 {
   "name": "__MSG_Name__",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "manifest_version": 2,
   "permissions": [
     "activeTab",
@@ -45,7 +45,7 @@
   ],
   "browser_specific_settings": {
     "gecko": {
-      "id": "searchng@shion-ng.addon",
+      "id": "searchng@ikuuy-puyuyu.addon",
       "data_collection_permissions": {
         "required": ["none"]
       }

@@ -163,6 +163,26 @@ const NGW4B = {
     );
   },
 
+  // フィルタリング状態をリセットする関数
+  unfilterAll: function () {
+    // すべての隠し要素を表示し、拡張機能のクラスと属性を削除
+    document.querySelectorAll(".ngw4b_hidden").forEach((el) => {
+      el.classList.remove("ngw4b_hidden");
+      el.removeAttribute("data-ngw4b-word");
+      el.removeAttribute("data-ngw4b-tipx");
+      el.removeAttribute("data-ngw4b-tipy");
+      const label = el.querySelector(".ngw4b_filtered_label");
+      if (label) label.remove();
+    });
+
+    // チェック済みマークを削除して再スキャン対象にする
+    document.querySelectorAll(".ngw4b_checked").forEach((el) => {
+      el.classList.remove("ngw4b_checked");
+    });
+
+    this.state.hiddenCount = 0;
+  },
+
   setupStorageListener: function () {
     chrome.storage.onChanged.addListener((changes) => {
       if (changes.ngw4b_status) {
@@ -180,21 +200,7 @@ const NGW4B = {
           const toggleBar = document.getElementById("ngw4b_toggle_bar");
           if (toggleBar) toggleBar.remove();
 
-          // すべての隠し要素を表示し、拡張機能のクラスと属性を削除
-          document.querySelectorAll(".ngw4b_hidden").forEach((el) => {
-            el.classList.remove("ngw4b_hidden");
-            el.removeAttribute("data-ngw4b-word");
-            el.removeAttribute("data-ngw4b-tipx");
-            el.removeAttribute("data-ngw4b-tipy");
-            // 除外ラベルを削除
-            const label = el.querySelector(".ngw4b_filtered_label");
-            if (label) label.remove();
-          });
-
-          // チェック済みマークを削除
-          document.querySelectorAll(".ngw4b_checked").forEach((el) => {
-            el.classList.remove("ngw4b_checked");
-          });
+          this.unfilterAll();
 
           // body と html からクラスを削除
           document.body.classList.remove("ngw4b_revealed");
@@ -202,14 +208,15 @@ const NGW4B = {
 
           // body の margin-top をリセット
           document.body.style.marginTop = "";
-
-          // カウントをリセット
-          this.state.hiddenCount = 0;
         }
       }
       if (changes.ngw4b_nglist) {
         this.state.ngList = this.parseNGList(changes.ngw4b_nglist.newValue);
-        if (this.state.isEnabled) this.runFilter();
+        if (this.state.isEnabled) {
+          // リスト更新時: 一旦リセットして再スキャン（削除されたワードを反映するため）
+          this.unfilterAll();
+          this.runFilter();
+        }
       }
     });
   },
@@ -370,6 +377,18 @@ const NGW4B = {
 
     this.updateCounts();
   },
+
+  // コンテキストメニューから追加されたワードを即座に反映（専用関数）
+  processWordFromContextMenu: function () {
+    // ストレージから最新のNGリストを読み込んでから再フィルタリング
+    storageAPI.get("ngw4b_nglist", (items) => {
+      this.state.ngList = this.parseNGList(items.ngw4b_nglist || "");
+
+      // 一旦すべてリセットしてから再フィルタリング
+      this.unfilterAll();
+      this.runFilter();
+    });
+  },
 };
 
 // -------------------------------------------------------------------------
@@ -394,19 +413,29 @@ const NGW4B_UI = {
     document.addEventListener(
       "click",
       (e) => {
-        if (!document.body.classList.contains("ngw4b_revealed")) return;
-
         // ラベルそのものがクリックされたかチェック
         const label = e.target.closest(".ngw4b_filtered_label");
         if (label) {
+          console.log(
+            "[NGW4B] Label clicked, revealed:",
+            document.body.classList.contains("ngw4b_revealed")
+          );
+
+          // 表示モードでない場合もツールチップを表示（デバッグ用に一時的に条件を緩和）
+          // if (!document.body.classList.contains("ngw4b_revealed")) return;
+
           // リンク遷移を防止
           e.preventDefault();
           e.stopPropagation();
 
-          const target = label.parentElement; // .ngw4b_hidden
-          const word = target.getAttribute("data-ngw4b-word");
-          if (word) {
-            this.showTooltip(e, word, target);
+          const target = label.closest(".ngw4b_hidden"); // 最も近い .ngw4b_hidden 要素を探す
+          console.log("[NGW4B] Target found:", !!target);
+          if (target) {
+            const word = target.getAttribute("data-ngw4b-word");
+            console.log("[NGW4B] Word:", word);
+            if (word) {
+              this.showTooltip(e, word, target);
+            }
           }
         }
       },
@@ -1152,7 +1181,7 @@ const NGW4B_UI = {
             (NGW4B.state.isEnabled && NGW4B.state.isEnabledSite) ||
             document.body.classList.contains("ngw4b_revealed")
           ) {
-            NGW4B.processWord(val); // 即座に反映
+            NGW4B.processWordFromContextMenu(); // 即座に反映
           }
           modal.close();
           modal.remove();
@@ -2020,6 +2049,21 @@ const NGW4B_Blocker = {
 
       this.checkCardText(card, check, noTitle, noSite, noDesc, originalWord);
     });
+
+    // 後処理: すべての子孫 DP8GD が非表示の場合、親 PO9Zff コンテナも非表示にする
+    const po9ZffContainers = document.querySelectorAll(".PO9Zff");
+    po9ZffContainers.forEach((container) => {
+      if (container.classList.contains("ngw4b_hidden")) return;
+
+      const allDP8GD = container.querySelectorAll(".DP8GD");
+      if (allDP8GD.length === 0) return; // DP8GD がない場合はスキップ
+
+      const hiddenDP8GD = container.querySelectorAll(".DP8GD.ngw4b_hidden");
+      if (allDP8GD.length === hiddenDP8GD.length) {
+        // すべての DP8GD が非表示なら、PO9Zff コンテナも非表示
+        this.hideElement(container, originalWord);
+      }
+    });
   },
 
   // 汎用テキストチェック関数 (クラス非依存版)
@@ -2047,14 +2091,14 @@ const NGW4B_Blocker = {
         continue;
 
       // コンテキスト判定
-      // タイトル: h系, role=heading, aria-level, span.cHaqb (Google動画タイトル)
+      // タイトル: h系, role=heading, aria-level, span.cHaqb (Google動画タイトル), a.gPFEn (news.google.comトップ記事タイトル), a.JtKRv (news.google.comニュース検索ページタイトル)
       const isTitle = parent.closest(
-        "h3, h4, h2, [role='heading'], [aria-level], span.cHaqb"
+        "h3, h4, h2, [role='heading'], [aria-level], span.cHaqb, a.gPFEn, a.JtKRv"
       );
 
-      // サイト/時間: cite, time, .Sg4azc (Google動画チャンネル名)
+      // サイト/時間: cite, time, .Sg4azc (Google動画チャンネル名), div.vr1PYe (news.google.comサイト名)
       // Google Newsでは time タグや cite タグが使われることが多い
-      const isSite = parent.closest("cite, time, .Sg4azc");
+      const isSite = parent.closest("cite, time, .Sg4azc, div.vr1PYe");
 
       let matched = false;
 
@@ -2068,8 +2112,13 @@ const NGW4B_Blocker = {
       }
 
       if (matched) {
-        // ユーザー要望: ニュース検索では zP82e カードごと消去
-        const target = card.closest(".zP82e") || card;
+        // news.google.com検索結果ページでは DP8GD または c-wiz.Ccj79 カードごと消去
+        // その他のニュース検索では zP82e カードごと消去
+        const target =
+          card.closest(".DP8GD") ||
+          card.closest("c-wiz.Ccj79") ||
+          card.closest(".zP82e") ||
+          card;
         this.hideElement(target, originalWord);
         return; // カード自体を隠したのでループ終了
       }
